@@ -1,0 +1,220 @@
+---
+title: "New user engagement"
+author: "Sajad Ghashami"
+date: "2022-12-23"
+output: 
+   html_document:
+     theme: cerulean
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(DBI)
+library(rmarkdown)
+library(ggpubr)
+library(data.table)
+library(knitr)
+library(plotly)
+library(rsconnect)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+con <- DBI::dbConnect(odbc::odbc(),
+                      #Snowflake
+                      #SnowflakeDSIIDriver
+                      Driver       = "SnowflakeDSIIDriver",
+                      Server       = "ed87949.us-east-1.snowflakecomputing.com",
+                      UID          = rstudioapi::askForPassword("Database user"),
+                      PWD          = rstudioapi::askForPassword("Database password"),
+                      Database     = "EDW",
+                      Warehouse    = "shiny_app",
+                      Schema       = "dim"
+                      #,
+                      #authenticator = "externalbrowser"
+                      )
+mywh <- DBI::dbSendQuery(con, 'use role shiny_app_role')
+#mywh <- DBI::dbSendQuery(con, 'use role developer_role')
+mywh <- DBI::dbSendQuery(con, 'use warehouse shiny_app')
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+users <- DBI::dbGetQuery(con,
+             "
+ SELECT *
+ FROM ANALYTICS.SANDBOX.engagement_metric_per_user_2022_12_23          
+     ")
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+total <- DBI::dbGetQuery(con,
+             "
+ SELECT *
+ FROM ANALYTICS.SANDBOX.total_users_2022_12_23          
+     ")
+
+```
+
+## total students/teachers since 2020-11-30
+
+(Fully)PAID/NOT PAID indicates their last status
+
+```{r message=FALSE, warning=FALSE}
+total %>%
+  arrange(TEACHER_VS_STUDENT, IS_PAID, IS_FULLY_PAID_LAST_STATUS, IS_PAID)%>%
+  kable()
+```
+
+## Teachers/Students with at least 1 of these actions:
+
+1.   dwell on a piece of basal content for 30s
+
+2.  prints
+
+3.   Assignments
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+new_users <- users %>%
+  filter(TEACHER_OR_STUDENT != 'other' & USER_ID !='2006972982')
+new_users$FULLY_PAID_LAST_STATUS <- as.factor(new_users$FULLY_PAID_LAST_STATUS)
+new_users$IS_PAID <- as.factor(new_users$IS_PAID)
+#xs=quantile(new_users$TOTAL_ACTIONS,c(0,1/3,2/3,1))
+
+summary <- new_users %>%
+  group_by(TEACHER_OR_STUDENT, FULLY_PAID_LAST_STATUS, IS_PAID ) %>%
+  summarise(Count=n(),
+            SUM_ACTIONS=sum(TOTAL_ACTIONS),
+            AVG_actions= round(mean(TOTAL_ACTIONS), 0),
+            first = round(AVG_actions/3, 0),
+            third = round(3 * AVG_actions, 0),
+            last = max(TOTAL_ACTIONS)
+#            ,category=cut(TOTAL_ACTIONS, breaks=xs,  labels=c("low","middle","high"),include.lowest = TRUE )
+            )  %>%
+  relocate(TEACHER_OR_STUDENT, FULLY_PAID_LAST_STATUS, IS_PAID, Count, SUM_ACTIONS, first,AVG_actions, third, last)
+  
+summary  %>%
+  rename("Infrequent Border(AVG/3)"="first",
+         "Casual Border (AVG)"="AVG_actions",
+         "Regular Border(3*AVG)"="third",
+         "Power Border(Maximum Number of actions)"="last"
+         ) %>%
+  kable()
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+summary_paid_fully <- new_users %>%
+  group_by(TEACHER_OR_STUDENT, FULLY_PAID_LAST_STATUS ) %>%
+  summarise(Count=n(),
+            SUM_ACTIONS=sum(TOTAL_ACTIONS),
+            AVG_actions= round(mean(TOTAL_ACTIONS), 0),
+            first = round(AVG_actions/3, 0),
+            third = round(3 * AVG_actions, 0),
+            last = max(TOTAL_ACTIONS)
+#            ,category=cut(TOTAL_ACTIONS, breaks=xs,  labels=c("low","middle","high"),include.lowest = TRUE )
+            )  %>%
+  relocate(TEACHER_OR_STUDENT, FULLY_PAID_LAST_STATUS, Count, SUM_ACTIONS, first,AVG_actions, third, last)
+  
+summary_paid_fully  %>%
+  rename("Infrequent Border(AVG/3)"="first",
+         "Casual Border (AVG)"="AVG_actions",
+         "Regular Border(3*AVG)"="third",
+         "Power Border(Maximum Number of actions)"="last"
+         )  %>%
+  kable(format.args = list(big.mark = ","))
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+summary_paid <- new_users %>%
+  group_by(TEACHER_OR_STUDENT, IS_PAID ) %>%
+  summarise(Count=n(),
+            SUM_ACTIONS=sum(TOTAL_ACTIONS),
+            AVG_actions= round(mean(TOTAL_ACTIONS), 0),
+            first = round(AVG_actions/3, 0),
+            third = round(3 * AVG_actions, 0),
+            last = max(TOTAL_ACTIONS)
+#            ,category=cut(TOTAL_ACTIONS, breaks=xs,  labels=c("low","middle","high"),include.lowest = TRUE )
+            )  %>%
+  relocate(TEACHER_OR_STUDENT, IS_PAID, Count, SUM_ACTIONS, first,AVG_actions, third, last)
+  
+summary_paid  %>%
+  rename("Infrequent Border(AVG/3)"="first",
+         "Casual Border (AVG)"="AVG_actions",
+         "Regular Border(3*AVG)"="third",
+         "Power Border(Maximum Number of actions)"="last"
+         )  %>%
+  kable(format.args = list(big.mark = ","))
+```
+
+
+```{r eval=FALSE, include=FALSE}
+new_users %>%
+  arrange(-TOTAL_ACTIONS) %>%
+  head() %>%
+  kable()
+```
+
+```{r echo=FALSE, out.height="100%", out.width="100%"}
+new_users %>%
+  ggplot(aes(TEACHER_OR_STUDENT, TOTAL_ACTIONS, color=TEACHER_OR_STUDENT))+
+  geom_boxplot() +
+  facet_wrap(~TEACHER_OR_STUDENT+ IS_PAID + FULLY_PAID_LAST_STATUS,
+             ncol=2,
+             scales='free',
+             labeller = labeller(.rows = label_both)) +
+  coord_flip()+
+  theme(legend.position="bottom")
+```
+
+```{r echo=FALSE}
+final_data <- new_users %>%
+  inner_join(summary,
+             by=c("TEACHER_OR_STUDENT", "FULLY_PAID_LAST_STATUS", "IS_PAID"),
+             keep= FALSE)
+
+grouped_data <- final_data %>%
+  mutate(Status= case_when(
+  TOTAL_ACTIONS <= round(first,0) ~ paste0("1- Infrequent,", "(Less than ", round(first,0), ")" ),
+  TOTAL_ACTIONS > round(first,0) & TOTAL_ACTIONS <= round(AVG_actions,0)  ~ paste0("2- Casual,", "(Between", round(first,0), " and ", round(AVG_actions,0) ,")" ),
+  TOTAL_ACTIONS > round(AVG_actions,0) & TOTAL_ACTIONS <= round(third,0)  ~ paste0("3- Regular,", "(Between", round(AVG_actions,0), " and ", round(third,0) ,")" ),
+  TOTAL_ACTIONS > round(third,0) & round(TOTAL_ACTIONS,0) <= last  ~ paste0("4- Power,", "(Between ", round(third,0), " and ", round(last,0) ,")" ),
+  TRUE ~ 'Other,'
+)
+)
+grouped_data$Status <- fct_rev(as.factor(grouped_data$Status))
+```
+
+```{r echo=FALSE, fig.width=8, fig.height=9, dpi=300, out.width="940px", out.height="1000px"}
+# {r echo=FALSE, fig.width=8, fig.height=4.5, dpi=300, out.width="940px", out.height="529px"}
+# {r echo=FALSE, out.height="100%", out.width="100%"}
+# {r echo=FALSE, fig.height=24, fig.width=24, out.height="200%", out.width="200%"}
+
+grouped_data  %>%
+#  filter(Status != 'Other') %>%
+  ungroup %>%
+  group_by(TEACHER_OR_STUDENT, FULLY_PAID_LAST_STATUS, IS_PAID, Status) %>%
+  summarise(Count=n()) %>%
+  ungroup() %>%
+  group_by(TEACHER_OR_STUDENT, FULLY_PAID_LAST_STATUS, IS_PAID) %>%
+  mutate( Percentage=100*round(Count/sum(Count),3)) %>%
+  ggplot(aes(x=Status, y=Count, fill=Status, text=Percentage)) +
+  geom_bar(stat="identity") +
+  geom_text(aes(label=Percentage), vjust=-0.3, size=3.5) +
+  facet_wrap(~TEACHER_OR_STUDENT + FULLY_PAID_LAST_STATUS + IS_PAID,
+             ncol=2,
+             scales='free',
+             labeller = labeller(.rows = label_both) ) +
+  coord_flip() +
+  theme(legend.position="none",
+        strip.text.x = element_text(size = 8))
+```
+
+
